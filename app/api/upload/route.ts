@@ -99,9 +99,11 @@ function runGitPush(filename: string): { output: string } {
 
   const relPath = join('public', 'models', filename)
 
+  const timestamp = new Date().toISOString()
+
   const gitSequence = [
     `git add "${relPath}"`,
-    `git commit -m "Design Update: ${filename} [$(date -u '+%Y-%m-%dT%H:%M:%SZ')]"`,
+    `git commit -m "Design Update: ${filename} [${timestamp}]"`,
     `git push origin ${branch}`,
   ]
 

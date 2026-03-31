@@ -1,11 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
-import busboy from 'busboy'
-import { createWriteStream, mkdirSync } from 'fs'
+import { writeFileSync, mkdirSync } from 'fs'
 import { join, extname, basename } from 'path'
-import { Readable } from 'stream'
 import { execSync } from 'child_process'
 
-// Forcer le runtime Node.js (nécessaire pour fs, child_process, busboy)
+// Forcer le runtime Node.js (nécessaire pour fs, child_process)
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
@@ -26,88 +24,31 @@ function sanitizeFilename(name: string): string {
 }
 
 // ─────────────────────────────────────────────
-// Utilitaire : parser le multipart via busboy
+// Utilitaire : parser le multipart via req.formData()
 // Retourne { filename, savedPath } ou throw
 // ─────────────────────────────────────────────
-function parseUpload(req: NextRequest): Promise<{ filename: string; savedPath: string }> {
-  return new Promise((resolve, reject) => {
-    const contentType = req.headers.get('content-type') ?? ''
+async function parseUpload(req: NextRequest): Promise<{ filename: string; savedPath: string }> {
+  const formData = await req.formData()
+  const file = formData.get('file') as File | null
 
-    const bb = busboy({
-      headers: { 'content-type': contentType },
-      limits: {
-        fileSize: 1024 * 1024 * 1024, // 1 GB hard cap
-        files: 1,                     // un seul fichier par requête
-      },
-    })
+  if (!file || file.size === 0) {
+    throw new Error('Aucun fichier reçu dans la requête')
+  }
 
-    let resolved = false
+  const safeFilename = sanitizeFilename(file.name)
+  const ext = extname(safeFilename).toLowerCase()
 
-    bb.on('file', (_fieldname, fileStream, info) => {
-      const { filename } = info
-      const safeFilename = sanitizeFilename(filename)
-      const ext = extname(safeFilename).toLowerCase()
+  if (!ALLOWED_EXTENSIONS.has(ext)) {
+    throw new Error(`Extension non autorisée : "${ext}". Formats acceptés : .glb, .gltf, .fbx`)
+  }
 
-      // Validation de l'extension AVANT toute écriture disque
-      if (!ALLOWED_EXTENSIONS.has(ext)) {
-        fileStream.resume() // vider le stream pour éviter un hang
-        bb.destroy()
-        return reject(
-          new Error(`Extension non autorisée : "${ext}". Formats acceptés : .glb, .gltf, .fbx`)
-        )
-      }
+  mkdirSync(MODELS_DIR, { recursive: true })
 
-      // S'assurer que le dossier de destination existe
-      mkdirSync(MODELS_DIR, { recursive: true })
+  const savedPath = join(MODELS_DIR, safeFilename)
+  const buffer = Buffer.from(await file.arrayBuffer())
+  writeFileSync(savedPath, buffer)
 
-      const savedPath = join(MODELS_DIR, safeFilename)
-      const writeStream = createWriteStream(savedPath) // écrase si existe déjà
-
-      fileStream.pipe(writeStream)
-
-      writeStream.on('finish', () => {
-        if (!resolved) {
-          resolved = true
-          resolve({ filename: safeFilename, savedPath })
-        }
-      })
-
-      writeStream.on('error', (err) => {
-        if (!resolved) {
-          resolved = true
-          reject(err)
-        }
-      })
-
-      fileStream.on('limit', () => {
-        writeStream.destroy()
-        reject(new Error('Fichier trop volumineux (limite : 500 MB)'))
-      })
-    })
-
-    bb.on('error', (err) => {
-      if (!resolved) {
-        resolved = true
-        reject(err)
-      }
-    })
-
-    bb.on('finish', () => {
-      // Si aucun fichier n'a été reçu
-      if (!resolved) {
-        resolved = true
-        reject(new Error('Aucun fichier reçu dans la requête'))
-      }
-    })
-
-    // Connecter le ReadableStream Web → Node.js Readable → busboy
-    if (!req.body) {
-      return reject(new Error('Corps de requête vide'))
-    }
-
-    // @ts-expect-error – req.body est un ReadableStream Web, compatible avec Readable.fromWeb
-    Readable.fromWeb(req.body).pipe(bb)
-  })
+  return { filename: safeFilename, savedPath }
 }
 
 // ─────────────────────────────────────────────

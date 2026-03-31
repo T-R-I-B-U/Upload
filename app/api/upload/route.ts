@@ -58,47 +58,46 @@ function runGitPush(filename: string): { output: string } {
   const branch = process.env.GIT_BRANCH ?? 'main'
   const repoUrl = process.env.GIT_REPO_URL
 
+  const execOpts = {
+    cwd: process.cwd(),
+    encoding: 'utf-8' as const,
+    timeout: 60_000,
+    env: {
+      ...process.env,
+      GIT_SSH_COMMAND: 'ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no -o UserKnownHostsFile=/root/.ssh/known_hosts',
+      GIT_AUTHOR_NAME: 'Asset Bridge 3D',
+      GIT_AUTHOR_EMAIL: 'deploy@assetbridge.local',
+      GIT_COMMITTER_NAME: 'Asset Bridge 3D',
+      GIT_COMMITTER_EMAIL: 'deploy@assetbridge.local',
+    },
+  }
+
   // S'assurer que le repo est initialisé et que le remote est configuré
   try {
-    execSync('git rev-parse --git-dir', {
-      cwd: process.cwd(),
-      stdio: 'ignore',
-    })
+    execSync('git rev-parse --git-dir', { cwd: process.cwd(), stdio: 'ignore' })
   } catch {
     // Pas encore de repo git — initialiser
-    execSync(`git init && git lfs install`, {
-      cwd: process.cwd(),
-      stdio: 'pipe',
-    })
+    execSync('git init && git lfs install', { ...execOpts, stdio: 'pipe' })
 
     if (repoUrl) {
-      execSync(`git remote add origin ${repoUrl}`, {
-        cwd: process.cwd(),
-        stdio: 'pipe',
-      })
+      execSync(`git remote add origin "${repoUrl}"`, { ...execOpts, stdio: 'pipe' })
     }
 
     // Récupérer l'historique distant si possible
     try {
-      execSync(`git fetch origin ${branch}`, {
-        cwd: process.cwd(),
-        stdio: 'pipe',
-        timeout: 30_000,
-      })
-      execSync(`git checkout -b ${branch} --track origin/${branch}`, {
-        cwd: process.cwd(),
-        stdio: 'pipe',
-      })
+      execSync(`git fetch origin ${branch}`, { ...execOpts, stdio: 'pipe', timeout: 30_000 })
+      execSync(`git checkout -b ${branch} --track origin/${branch}`, { ...execOpts, stdio: 'pipe' })
     } catch {
-      execSync(`git checkout -b ${branch}`, {
-        cwd: process.cwd(),
-        stdio: 'pipe',
-      })
+      execSync(`git checkout -b ${branch}`, { ...execOpts, stdio: 'pipe' })
     }
   }
 
-  const relPath = join('public', 'models', filename)
+  // Mettre à jour l'URL du remote avec le token (au cas où elle aurait changé)
+  if (repoUrl) {
+    execSync(`git remote set-url origin "${repoUrl}"`, { ...execOpts, stdio: 'pipe' })
+  }
 
+  const relPath = join('public', 'models', filename)
   const timestamp = new Date().toISOString()
 
   const gitSequence = [
@@ -109,15 +108,7 @@ function runGitPush(filename: string): { output: string } {
 
   let output = ''
   for (const cmd of gitSequence) {
-    output += execSync(cmd, {
-      cwd: process.cwd(),
-      encoding: 'utf-8',
-      timeout: 60_000,
-      env: {
-        ...process.env,
-        GIT_SSH_COMMAND: 'ssh -i /root/.ssh/id_rsa -o StrictHostKeyChecking=no',
-      },
-    })
+    output += execSync(cmd, execOpts)
   }
 
   return { output }

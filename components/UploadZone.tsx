@@ -120,7 +120,7 @@ export default function UploadZone() {
             codes.includes('file-invalid-type')
               ? `Format non supporté. Utilisez : ${ACCEPTED_EXTENSIONS.join(', ')}`
               : codes.includes('file-too-large')
-              ? 'Fichier trop volumineux (max 500 MB)'
+              ? 'Fichier trop volumineux (max 1 GB)'
               : `Fichier rejeté : ${codes}`,
         })
         setStatus('error')

@@ -8,7 +8,7 @@ const nextConfig: NextConfig = {
   // Note : la limite d'upload est gérée par le proxy Nginx (client_max_body_size 500M dans Coolify)
   experimental: {
     serverActions: {
-      bodySizeLimit: '500mb',
+      bodySizeLimit: '1gb',
     },
   },
 }

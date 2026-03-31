@@ -36,7 +36,7 @@ function parseUpload(req: NextRequest): Promise<{ filename: string; savedPath: s
     const bb = busboy({
       headers: { 'content-type': contentType },
       limits: {
-        fileSize: 500 * 1024 * 1024, // 500 MB hard cap
+        fileSize: 1024 * 1024 * 1024, // 1 GB hard cap
         files: 1,                     // un seul fichier par requête
       },
     })

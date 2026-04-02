@@ -22,9 +22,9 @@ if [ -n "$SSH_PRIVATE_KEY" ]; then
     mkdir -p /root/.ssh
     chmod 700 /root/.ssh
 
-    # Écrire la clé en préservant les sauts de ligne
-    # (Coolify peut avoir encodé les \n en littéraux — on les remplace)
-    printf '%s' "$SSH_PRIVATE_KEY" | sed 's/\\n/\n/g' > /root/.ssh/id_rsa
+    # Écrire la clé — Coolify préserve les vrais sauts de ligne en multiline
+    # On strip les \r éventuels (Windows CRLF) pour éviter "error in libcrypto"
+    printf '%s\n' "$SSH_PRIVATE_KEY" | tr -d '\r' > /root/.ssh/id_rsa
     chmod 600 /root/.ssh/id_rsa
 
     # Ajouter github.com aux known_hosts pour éviter l'invite interactive

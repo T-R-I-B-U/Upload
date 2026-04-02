@@ -100,16 +100,28 @@ function runGitPush(filename: string): { output: string } {
   const relPath = join('public', 'models', filename)
   const timestamp = new Date().toISOString()
 
-  const gitSequence = [
-    `git add "${relPath}"`,
-    `git commit -m "Design Update: ${filename} [${timestamp}]"`,
-    `git push origin ${branch}`,
-  ]
-
   let output = ''
-  for (const cmd of gitSequence) {
-    output += execSync(cmd, execOpts)
+
+  // git add
+  output += execSync(`git add "${relPath}"`, execOpts)
+
+  // git commit — ignoré si rien à committer (fichier identique)
+  try {
+    output += execSync(`git commit -m "Design Update: ${filename} [${timestamp}]"`, execOpts)
+  } catch (err) {
+    const msg = [
+      err instanceof Error ? err.message : '',
+      (err as NodeJS.ErrnoException & { stdout?: string })?.stdout ?? '',
+      (err as NodeJS.ErrnoException & { stderr?: string })?.stderr ?? '',
+    ].join(' ')
+    if (!msg.includes('nothing to commit') && !msg.includes('nothing added to commit')) {
+      throw err
+    }
+    output += '[rien à committer — fichier identique]\n'
   }
+
+  // git push
+  output += execSync(`git push origin ${branch}`, execOpts)
 
   return { output }
 }

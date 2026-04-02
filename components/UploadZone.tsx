@@ -6,7 +6,15 @@ import { useDropzone, FileRejection } from 'react-dropzone'
 // ─────────────────────────────────────────────
 // Types
 // ─────────────────────────────────────────────
-type UploadStatus = 'idle' | 'uploading' | 'success' | 'error'
+type FileStatus = 'pending' | 'uploading' | 'success' | 'error'
+
+interface FileEntry {
+  file: File
+  status: FileStatus
+  progress: number
+  error?: string
+  filename?: string
+}
 
 interface UploadResult {
   success: boolean
@@ -49,121 +57,141 @@ function getFileType(filename: string): 'model' | 'texture' | null {
   return null
 }
 
+function uploadSingleFile(
+  file: File,
+  secret: string,
+  assetName: string,
+  onProgress: (pct: number) => void,
+  xhrRef: { current: XMLHttpRequest | null }
+): Promise<UploadResult> {
+  return new Promise((resolve) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    if (assetName.trim()) formData.append('assetName', assetName.trim())
+
+    const xhr = new XMLHttpRequest()
+    xhrRef.current = xhr
+
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+
+    xhr.onload = () => {
+      try {
+        resolve(JSON.parse(xhr.responseText))
+      } catch {
+        resolve({ success: false, error: `Réponse inattendue (HTTP ${xhr.status})` })
+      }
+    }
+
+    xhr.onerror = () => resolve({ success: false, error: 'Erreur réseau.' })
+    xhr.onabort = () => resolve({ success: false, error: 'Annulé.' })
+
+    xhr.open('POST', '/api/upload')
+    xhr.setRequestHeader('x-upload-secret', secret.trim())
+    xhr.send(formData)
+  })
+}
+
 // ─────────────────────────────────────────────
 // Composant principal
 // ─────────────────────────────────────────────
 export default function UploadZone() {
-  const [status, setStatus] = useState<UploadStatus>('idle')
-  const [progress, setProgress] = useState(0)
+  const [files, setFiles] = useState<FileEntry[]>([])
+  const [isUploading, setIsUploading] = useState(false)
   const [secret, setSecret] = useState('')
   const [secretVisible, setSecretVisible] = useState(false)
   const [assetName, setAssetName] = useState('')
-  const [result, setResult] = useState<UploadResult | null>(null)
-  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [globalError, setGlobalError] = useState<string | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
 
-  // ── Upload via XHR pour accès à onprogress ──
-  const uploadFile = useCallback(
-    (file: File) => {
-      if (!secret.trim()) {
-        setResult({ success: false, error: 'Veuillez saisir la clé d\'accès avant d\'uploader.' })
-        setStatus('error')
-        return
-      }
+  const updateFile = (index: number, patch: Partial<FileEntry>) => {
+    setFiles((prev) => prev.map((f, i) => i === index ? { ...f, ...patch } : f))
+  }
 
-      setStatus('uploading')
-      setProgress(0)
-      setResult(null)
+  // ── Upload séquentiel de tous les fichiers ──
+  const handleUpload = useCallback(async () => {
+    if (!secret.trim()) {
+      setGlobalError('Veuillez saisir la clé d\'accès avant d\'uploader.')
+      return
+    }
+    if (files.length === 0) return
 
-      const formData = new FormData()
-      formData.append('file', file)
-      if (assetName.trim()) {
-        formData.append('assetName', assetName.trim())
-      }
+    setIsUploading(true)
+    setGlobalError(null)
 
-      const xhr = new XMLHttpRequest()
-      xhrRef.current = xhr
+    for (let i = 0; i < files.length; i++) {
+      if (files[i].status === 'success') continue
 
-      xhr.upload.onprogress = (event) => {
-        if (event.lengthComputable) {
-          const pct = Math.round((event.loaded / event.total) * 100)
-          setProgress(pct)
-        }
-      }
+      updateFile(i, { status: 'uploading', progress: 0, error: undefined })
 
-      xhr.onload = () => {
-        let parsed: UploadResult
-        try {
-          parsed = JSON.parse(xhr.responseText)
-        } catch {
-          parsed = { success: false, error: `Réponse serveur inattendue (HTTP ${xhr.status})` }
-        }
-        setResult(parsed)
-        setStatus(parsed.success ? 'success' : 'error')
-        setProgress(parsed.success ? 100 : 0)
-      }
+      const result = await uploadSingleFile(
+        files[i].file,
+        secret,
+        assetName,
+        (pct) => updateFile(i, { progress: pct }),
+        xhrRef
+      )
 
-      xhr.onerror = () => {
-        setResult({ success: false, error: 'Erreur réseau — vérifiez votre connexion.' })
-        setStatus('error')
-      }
+      updateFile(i, {
+        status: result.success ? 'success' : 'error',
+        progress: result.success ? 100 : 0,
+        error: result.success ? undefined : result.error,
+        filename: result.filename,
+      })
+    }
 
-      xhr.onabort = () => {
-        setResult({ success: false, error: 'Upload annulé.' })
-        setStatus('idle')
-        setProgress(0)
-      }
+    setIsUploading(false)
+  }, [files, secret, assetName])
 
-      xhr.open('POST', '/api/upload')
-      xhr.setRequestHeader('x-upload-secret', secret.trim())
-      xhr.send(formData)
-    },
-    [secret, assetName]
-  )
+  // ── Annuler le fichier en cours ──
+  const handleCancel = () => { xhrRef.current?.abort() }
+
+  // ── Supprimer un fichier de la liste ──
+  const removeFile = (index: number) => {
+    setFiles((prev) => prev.filter((_, i) => i !== index))
+  }
+
+  // ── Reset total ──
+  const handleReset = () => {
+    setFiles([])
+    setGlobalError(null)
+    setIsUploading(false)
+  }
 
   // ── react-dropzone ──
-  const onDrop = useCallback(
-    (acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
-      if (rejectedFiles.length > 0) {
-        const codes = rejectedFiles[0].errors.map((e) => e.code).join(', ')
-        setResult({
-          success: false,
-          error:
-            codes.includes('file-invalid-type')
-              ? `Format non supporté. Utilisez : ${ALL_EXTENSIONS.join(', ')}`
-              : codes.includes('file-too-large')
-              ? 'Fichier trop volumineux (max 1 GB)'
-              : `Fichier rejeté : ${codes}`,
-        })
-        setStatus('error')
-        return
-      }
-      if (acceptedFiles.length === 0) return
-      setSelectedFile(acceptedFiles[0])
-      setStatus('idle')
-      setResult(null)
-    },
-    []
-  )
+  const onDrop = useCallback((acceptedFiles: File[], rejectedFiles: FileRejection[]) => {
+    if (rejectedFiles.length > 0) {
+      const codes = rejectedFiles[0].errors.map((e) => e.code).join(', ')
+      setGlobalError(
+        codes.includes('file-invalid-type')
+          ? `Format non supporté. Utilisez : ${ALL_EXTENSIONS.join(', ')}`
+          : `Fichier rejeté : ${codes}`
+      )
+      return
+    }
+
+    setGlobalError(null)
+    setFiles((prev) => {
+      // Dédoublonner par nom
+      const existingNames = new Set(prev.map((f) => f.file.name))
+      const newEntries: FileEntry[] = acceptedFiles
+        .filter((f) => !existingNames.has(f.name))
+        .map((file) => ({ file, status: 'pending', progress: 0 }))
+      return [...prev, ...newEntries]
+    })
+  }, [])
 
   const { getRootProps, getInputProps, isDragActive, isDragReject } = useDropzone({
     onDrop,
     accept: ACCEPTED_FORMATS,
-    maxFiles: 1,
     maxSize: 1024 * 1024 * 1024,
-    disabled: status === 'uploading',
+    disabled: isUploading,
+    multiple: true,
   })
 
-  const handleUploadClick = () => { if (selectedFile) uploadFile(selectedFile) }
-  const handleCancel = () => { xhrRef.current?.abort() }
-  const handleReset = () => {
-    setStatus('idle')
-    setProgress(0)
-    setResult(null)
-    setSelectedFile(null)
-  }
-
-  const fileType = selectedFile ? getFileType(selectedFile.name) : null
+  const allDone = files.length > 0 && files.every((f) => f.status === 'success')
+  const hasErrors = files.some((f) => f.status === 'error')
 
   // ─────────────────────────────────────────────
   // Render
@@ -173,16 +201,14 @@ export default function UploadZone() {
 
       {/* Clé d'accès */}
       <div className="space-y-1.5">
-        <label className="block text-sm font-medium text-gray-700">
-          Clé d&apos;accès
-        </label>
+        <label className="block text-sm font-medium text-gray-700">Clé d&apos;accès</label>
         <div className="relative">
           <input
             type={secretVisible ? 'text' : 'password'}
             value={secret}
             onChange={(e) => setSecret(e.target.value)}
             placeholder="Saisir la clé secrète…"
-            disabled={status === 'uploading'}
+            disabled={isUploading}
             className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5 pr-12
                        text-gray-800 placeholder-gray-300 text-sm shadow-soft
                        focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400
@@ -219,193 +245,179 @@ export default function UploadZone() {
           value={assetName}
           onChange={(e) => setAssetName(e.target.value)}
           placeholder="ex : clocher, sol_pierre, mur_brique…"
-          disabled={status === 'uploading'}
+          disabled={isUploading}
           className="w-full bg-white border border-surface-border rounded-xl px-4 py-2.5
                      text-gray-800 placeholder-gray-300 text-sm font-mono shadow-soft
                      focus:outline-none focus:ring-2 focus:ring-brand-300 focus:border-brand-400
                      disabled:opacity-50 disabled:cursor-not-allowed transition"
         />
-        {assetName.trim() && selectedFile && (
-          <p className="text-xs text-gray-400">
-            Sera sauvegardé comme{' '}
-            <span className="font-mono text-brand-500">
-              {fileType === 'texture' ? 'textures' : 'models'}/
-              {assetName.trim().replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase()}
-              {selectedFile.name.slice(selectedFile.name.lastIndexOf('.')).toLowerCase()}
-            </span>
-          </p>
-        )}
       </div>
 
       {/* Dropzone */}
       <div
         {...getRootProps()}
         className={`
-          relative border-2 border-dashed rounded-2xl p-10 text-center cursor-pointer transition-all duration-200 bg-white shadow-soft
-          ${status === 'uploading' ? 'cursor-not-allowed opacity-60 border-surface-border' : ''}
+          relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 bg-white shadow-soft
+          ${isUploading ? 'cursor-not-allowed opacity-60 border-surface-border' : ''}
           ${isDragReject ? 'border-red-400 bg-red-50' : ''}
           ${isDragActive && !isDragReject ? 'border-brand-400 bg-brand-50 scale-[1.01]' : ''}
-          ${!isDragActive && !isDragReject && status !== 'uploading'
+          ${!isDragActive && !isDragReject && !isUploading
             ? 'border-surface-border hover:border-brand-300 hover:bg-brand-50/40'
             : ''}
-          ${status === 'success' ? 'border-green-300 bg-green-50' : ''}
-          ${status === 'error' ? 'border-red-300 bg-red-50' : ''}
         `}
       >
         <input {...getInputProps()} />
-
-        {/* Icône centrale */}
-        <div className="flex justify-center mb-4">
-          {status === 'success' ? (
-            <div className="w-14 h-14 rounded-full bg-green-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-              </svg>
-            </div>
-          ) : status === 'error' ? (
-            <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </div>
-          ) : status === 'uploading' ? (
-            <div className="w-14 h-14 rounded-full bg-brand-100 flex items-center justify-center">
-              <svg className="w-7 h-7 text-brand-500 animate-spin" fill="none" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-              </svg>
-            </div>
-          ) : (
-            <div className={`w-14 h-14 rounded-full flex items-center justify-center transition
-              ${isDragActive ? 'bg-brand-200' : 'bg-brand-100'}`}>
-              <svg className={`w-7 h-7 transition ${isDragActive ? 'text-brand-600' : 'text-brand-500'}`}
-                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                <path strokeLinecap="round" strokeLinejoin="round"
-                  d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
-              </svg>
-            </div>
-          )}
+        <div className="flex justify-center mb-3">
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center transition
+            ${isDragActive ? 'bg-brand-200' : 'bg-brand-100'}`}>
+            <svg className={`w-6 h-6 transition ${isDragActive ? 'text-brand-600' : 'text-brand-500'}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+              <path strokeLinecap="round" strokeLinejoin="round"
+                d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+            </svg>
+          </div>
         </div>
-
-        {/* Texte selon l'état */}
-        {status === 'uploading' ? (
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-1">Upload en cours… {progress}%</p>
-            <p className="text-xs text-gray-400">{selectedFile?.name} — {formatBytes(selectedFile?.size ?? 0)}</p>
-          </div>
-        ) : status === 'success' ? (
-          <div>
-            <p className="text-sm font-medium text-green-600 mb-1">{result?.message ?? 'Fichier déposé avec succès'}</p>
-            <p className="text-xs text-gray-400">Commité et poussé sur Git LFS</p>
-          </div>
-        ) : status === 'error' ? (
-          <div>
-            <p className="text-sm font-medium text-red-500 mb-1">Échec de l&apos;upload</p>
-            <p className="text-xs text-gray-500 break-words max-w-md mx-auto">{result?.error ?? 'Une erreur est survenue'}</p>
-          </div>
-        ) : isDragReject ? (
-          <div>
-            <p className="text-sm font-medium text-red-500 mb-1">Format non supporté</p>
-            <p className="text-xs text-gray-400">Modèles : .glb, .gltf, .fbx · Textures : .png, .jpg, .webp, .ktx2</p>
-          </div>
-        ) : selectedFile ? (
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-1">
-              Fichier prêt
-              {fileType && (
-                <span className={`ml-2 text-xs px-2 py-0.5 rounded-full font-normal
-                  ${fileType === 'model'
-                    ? 'bg-brand-100 text-brand-600'
-                    : 'bg-rose-100 text-rose-500'}`}>
-                  {fileType === 'model' ? 'Modèle 3D' : 'Texture'}
-                </span>
-              )}
-            </p>
-            <p className="text-xs text-gray-500 font-mono">{selectedFile.name}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{formatBytes(selectedFile.size)}</p>
-          </div>
+        {isDragReject ? (
+          <p className="text-sm font-medium text-red-500">Format non supporté</p>
+        ) : isDragActive ? (
+          <p className="text-sm font-medium text-brand-600">Relâchez pour ajouter</p>
         ) : (
-          <div>
-            <p className="text-sm font-medium text-gray-600 mb-1">
-              {isDragActive ? 'Relâchez pour déposer' : 'Glissez votre fichier ici'}
+          <>
+            <p className="text-sm font-medium text-gray-600">
+              Glissez vos fichiers ici
+              <span className="text-gray-400 font-normal"> ou cliquez pour parcourir</span>
             </p>
-            <p className="text-xs text-gray-400">
+            <p className="text-xs text-gray-400 mt-1">
               Modèles : .glb, .gltf, .fbx · Textures : .png, .jpg, .webp, .ktx2
             </p>
-          </div>
+          </>
         )}
       </div>
 
-      {/* Barre de progression */}
-      {status === 'uploading' && (
+      {/* Erreur globale */}
+      {globalError && (
+        <p className="text-xs text-red-500 text-center">{globalError}</p>
+      )}
+
+      {/* Liste des fichiers */}
+      {files.length > 0 && (
         <div className="space-y-2">
-          <div className="w-full h-1.5 bg-brand-100 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-gradient-brand rounded-full transition-all duration-300"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-          <div className="flex justify-between text-xs text-gray-400">
-            <span>Upload</span>
-            <span>{progress}%</span>
-          </div>
+          {files.map((entry, i) => {
+            const type = getFileType(entry.file.name)
+            return (
+              <div key={`${entry.file.name}-${i}`}
+                className="flex items-center gap-3 bg-white border border-surface-border rounded-xl px-4 py-3 shadow-soft">
+
+                {/* Icône statut */}
+                <div className="shrink-0">
+                  {entry.status === 'success' ? (
+                    <div className="w-8 h-8 rounded-full bg-green-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                      </svg>
+                    </div>
+                  ) : entry.status === 'error' ? (
+                    <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </div>
+                  ) : entry.status === 'uploading' ? (
+                    <div className="w-8 h-8 rounded-full bg-brand-100 flex items-center justify-center">
+                      <svg className="w-4 h-4 text-brand-500 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                    </div>
+                  ) : (
+                    <div className="w-8 h-8 rounded-full bg-surface-muted flex items-center justify-center">
+                      <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </div>
+                  )}
+                </div>
+
+                {/* Infos fichier */}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm text-gray-700 font-mono truncate">{entry.file.name}</span>
+                    {type && (
+                      <span className={`shrink-0 text-xs px-1.5 py-0.5 rounded-full
+                        ${type === 'model' ? 'bg-brand-100 text-brand-600' : 'bg-rose-100 text-rose-500'}`}>
+                        {type === 'model' ? '3D' : 'Texture'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <span className="text-xs text-gray-400">{formatBytes(entry.file.size)}</span>
+                    {entry.status === 'error' && entry.error && (
+                      <span className="text-xs text-red-400 truncate">{entry.error}</span>
+                    )}
+                    {entry.status === 'success' && entry.filename && (
+                      <span className="text-xs text-green-500 font-mono">{entry.filename}</span>
+                    )}
+                  </div>
+                  {/* Barre de progression individuelle */}
+                  {entry.status === 'uploading' && (
+                    <div className="mt-1.5 w-full h-1 bg-brand-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-gradient-brand rounded-full transition-all duration-200"
+                        style={{ width: `${entry.progress}%` }}
+                      />
+                    </div>
+                  )}
+                </div>
+
+                {/* Supprimer */}
+                {entry.status !== 'uploading' && (
+                  <button
+                    onClick={() => removeFile(i)}
+                    className="shrink-0 text-gray-300 hover:text-red-400 transition"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            )
+          })}
         </div>
-      )}
-
-      {/* Détail git output (succès) */}
-      {status === 'success' && result?.gitOutput && (
-        <details className="group">
-          <summary className="text-xs text-gray-400 cursor-pointer hover:text-brand-500 transition select-none">
-            Voir la sortie Git
-          </summary>
-          <pre className="mt-2 p-3 bg-surface-muted border border-surface-border rounded-xl text-xs text-gray-500 font-mono overflow-x-auto whitespace-pre-wrap">
-            {result.gitOutput}
-          </pre>
-        </details>
-      )}
-
-      {/* Détail git error (erreur) */}
-      {status === 'error' && result?.gitError && (
-        <details className="group">
-          <summary className="text-xs text-red-400 cursor-pointer hover:text-red-500 transition select-none">
-            Voir le détail de l&apos;erreur Git
-          </summary>
-          <pre className="mt-2 p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-500 font-mono overflow-x-auto whitespace-pre-wrap">
-            {result.gitError}
-          </pre>
-        </details>
       )}
 
       {/* Boutons d'action */}
       <div className="flex gap-3">
-        {status === 'idle' && selectedFile && (
+        {!isUploading && files.some((f) => f.status === 'pending' || f.status === 'error') && (
           <button
-            onClick={handleUploadClick}
+            onClick={handleUpload}
             className="flex-1 bg-gradient-brand hover:opacity-90 text-white font-medium text-sm
                        py-2.5 px-6 rounded-xl shadow-soft transition-opacity duration-150
                        focus:outline-none focus:ring-2 focus:ring-brand-300"
           >
-            Uploader &amp; Pousser sur Git
+            Uploader {files.filter(f => f.status !== 'success').length > 1
+              ? `${files.filter(f => f.status !== 'success').length} fichiers`
+              : 'le fichier'} &amp; Pousser sur Git
           </button>
         )}
 
-        {status === 'uploading' && (
+        {isUploading && (
           <button
             onClick={handleCancel}
             className="flex-1 bg-surface-muted hover:bg-brand-100 text-gray-600 font-medium text-sm
                        py-2.5 px-6 rounded-xl border border-surface-border transition-colors duration-150"
           >
-            Annuler
+            Annuler le fichier en cours
           </button>
         )}
 
-        {(status === 'success' || status === 'error') && (
+        {(allDone || hasErrors) && !isUploading && (
           <button
             onClick={handleReset}
             className="flex-1 bg-surface-muted hover:bg-brand-100 text-gray-600 font-medium text-sm
                        py-2.5 px-6 rounded-xl border border-surface-border transition-colors duration-150"
           >
-            {status === 'success' ? 'Déposer un autre fichier' : 'Réessayer'}
+            {allDone ? 'Tout effacer' : 'Réessayer'}
           </button>
         )}
       </div>

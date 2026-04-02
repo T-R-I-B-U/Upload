@@ -102,6 +102,10 @@ function runGitPush(filename: string): { output: string } {
 
   let output = ''
 
+  // Sync avec le remote avant de committer
+  output += execSync(`git fetch origin ${branch}`, execOpts)
+  output += execSync(`git reset --hard origin/${branch}`, execOpts)
+
   // git add
   output += execSync(`git add "${relPath}"`, execOpts)
 

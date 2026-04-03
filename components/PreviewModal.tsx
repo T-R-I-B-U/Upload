@@ -72,7 +72,7 @@ export default function PreviewModal({ file, onClose }: PreviewModalProps) {
             />
           )}
 
-          {isGltf && <WatercolorViewer src={objectUrl} />}
+          {isGltf && <WatercolorViewer file={file} />}
 
           {isUnsupported && (
             <div className="flex flex-col items-center justify-center h-48 gap-2 text-gray-400">

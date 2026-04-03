@@ -24,7 +24,7 @@ const EFFECTS: { key: keyof WatercolorSettings; label: string }[] = [
   { key: 'paper',    label: 'Papier' },
 ]
 
-export default function WatercolorViewer({ src }: { src: string }) {
+export default function WatercolorViewer({ file }: { file: File }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const [settings, setSettings] = useState<WatercolorSettings>({
     kuwahara: true,
@@ -66,18 +66,6 @@ export default function WatercolorViewer({ src }: { src: string }) {
     controls.autoRotateSpeed = 0.5
     controls.enableDamping   = true
 
-    // ── Charger le modèle ──
-    const loader = new GLTFLoader()
-    loader.load(src, (gltf) => {
-      const box    = new THREE.Box3().setFromObject(gltf.scene)
-      const center = box.getCenter(new THREE.Vector3())
-      const size   = box.getSize(new THREE.Vector3()).length()
-      gltf.scene.position.sub(center)
-      camera.position.set(0, size * 0.2, size * 1.2)
-      controls.update()
-      scene.add(gltf.scene)
-    })
-
     // ── Post-processing ──
     const composer = new EffectComposer(renderer)
     composer.addPass(new RenderPass(scene, camera))
@@ -89,14 +77,29 @@ export default function WatercolorViewer({ src }: { src: string }) {
     if (settings.paper)    effects.push(new PaperOverlayEffectImpl({ opacity: 0.15 }))
     if (effects.length > 0) composer.addPass(new EffectPass(camera, ...effects))
 
-    // ── Boucle d'animation ──
-    const clock = new THREE.Clock()
+    // ── Charger depuis ArrayBuffer (évite le fetch blob patché par Next.js) ──
+    const loader = new GLTFLoader()
     let animId: number
+    const clock  = new THREE.Clock()
+
     const animate = () => {
       animId = requestAnimationFrame(animate)
       controls.update()
       composer.render(clock.getDelta())
     }
+
+    file.arrayBuffer().then((buffer) => {
+      loader.parseAsync(buffer, '').then((gltf) => {
+        const box    = new THREE.Box3().setFromObject(gltf.scene)
+        const center = box.getCenter(new THREE.Vector3())
+        const size   = box.getSize(new THREE.Vector3()).length()
+        gltf.scene.position.sub(center)
+        camera.position.set(0, size * 0.2, size * 1.2)
+        controls.update()
+        scene.add(gltf.scene)
+      })
+    })
+
     animate()
 
     return () => {
@@ -105,7 +108,7 @@ export default function WatercolorViewer({ src }: { src: string }) {
       composer.dispose()
       renderer.dispose()
     }
-  }, [src, settings])
+  }, [file, settings])
 
   return (
     <div className="relative">

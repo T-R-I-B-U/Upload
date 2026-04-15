@@ -4,10 +4,6 @@ const nextConfig: NextConfig = {
   // Output standalone pour Docker (inclut uniquement les fichiers nécessaires)
   output: 'standalone',
 
-  // Ne pas bundler sharp au build : chargé en externe au runtime uniquement.
-  // Évite le crash SIGILL quand le binaire natif est compilé pour une autre archi.
-  serverExternalPackages: ['sharp'],
-
   // Inclure sharp dans le bundle standalone pour le runner Docker
   outputFileTracingIncludes: {
     '/api/upload': ['./node_modules/sharp/**/*'],

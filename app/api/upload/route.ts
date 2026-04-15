@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import sharp from 'sharp'
 import { writeFileSync, mkdirSync, existsSync } from 'fs'
 import { join, extname, basename } from 'path'
 import { execSync } from 'child_process'
@@ -91,11 +90,12 @@ async function writeAndCompress(
   let compressedFilename: string | null = null
   let compressionWarning: string | undefined
 
-  // Textures PNG/JPG → WebP
+  // Textures PNG/JPG → WebP (import dynamique : sharp ne se charge qu'au runtime)
   if (isTexture && COMPRESSIBLE_TEXTURE_EXTENSIONS.has(ext)) {
     try {
       mkdirSync(compressedDir, { recursive: true })
       compressedFilename = filename.replace(/\.[^.]+$/, '.webp')
+      const { default: sharp } = await import('sharp')
       const webpBuffer = await sharp(buffer).webp({ quality: 85 }).toBuffer()
       writeFileSync(join(compressedDir, compressedFilename), webpBuffer)
       relPaths.push(join(compressedRelDir, compressedFilename))

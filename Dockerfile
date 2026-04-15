@@ -6,12 +6,15 @@
 # ─── Stage 1 : Dépendances ───────────────────────────────────────────────────
 FROM node:20-alpine AS deps
 
-# Outils système nécessaires : git, git-lfs, openssh (pour push SSH)
+# python3/make/g++ : nécessaires pour compiler sharp (module natif Node.js)
 RUN apk add --no-cache \
     git \
     git-lfs \
     openssh-client \
-    ca-certificates
+    ca-certificates \
+    python3 \
+    make \
+    g++
 
 # Initialiser Git LFS globalement
 RUN git lfs install --system
@@ -21,7 +24,8 @@ WORKDIR /app
 # Copier uniquement les fichiers de dépendances pour profiter du cache Docker
 COPY package.json package-lock.json* ./
 
-RUN npm ci --ignore-scripts
+# Sans --ignore-scripts : permet à sharp de télécharger son binaire natif
+RUN npm ci
 
 # ─── Stage 2 : Build ─────────────────────────────────────────────────────────
 FROM node:20-alpine AS builder
@@ -48,16 +52,13 @@ LABEL maintainer="Asset Bridge 3D"
 LABEL description="Interface d'upload 3D sécurisée avec Git LFS"
 
 # Outils runtime : git, git-lfs, openssh (pour le git push au runtime)
-# python3/make/g++ : nécessaires pour compiler sharp (module natif Node.js)
+# Les outils de compilation (python3/make/g++) restent dans deps, inutiles ici
 RUN apk add --no-cache \
     git \
     git-lfs \
     openssh-client \
     ca-certificates \
-    tini \
-    python3 \
-    make \
-    g++
+    tini
 
 # Initialiser Git LFS au niveau système
 RUN git lfs install --system

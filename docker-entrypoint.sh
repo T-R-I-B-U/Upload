@@ -91,5 +91,10 @@ fi
 
 echo "[entrypoint] Configuration terminée. Lancement de l'application..."
 
-# ─── 5. Lancer la commande principale ────────────────────────────────────────
+# ─── 5. Restaurer le package.json de l'app ───────────────────────────────────
+# Le git checkout du repo d'assets peut écraser /app/package.json si le repo
+# contient un package.json avec "type": "module", ce qui casse server.js (CJS).
+printf '{"name":"asset-bridge-3d","version":"0.1.0"}\n' > /app/package.json
+
+# ─── 6. Lancer la commande principale ────────────────────────────────────────
 exec "$@"

@@ -1,67 +1,71 @@
 # =============================================================================
 # Asset Bridge 3D — Dockerfile optimisé pour Coolify
-# Node 20 Alpine · Git LFS · SSH · Multi-stage build
+# Node 20 Slim (Debian) · Blender (headless) · Git LFS · SSH · Multi-stage
 # =============================================================================
 
 # ─── Stage 1 : Dépendances ───────────────────────────────────────────────────
-FROM node:20-alpine AS deps
+FROM node:20-slim AS deps
 
-# python3/make/g++ : nécessaires pour compiler sharp (module natif Node.js)
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
     openssh-client \
     ca-certificates \
     python3 \
     make \
-    g++
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
-# Initialiser Git LFS globalement
 RUN git lfs install --system
 
 WORKDIR /app
 
-# Copier uniquement les fichiers de dépendances pour profiter du cache Docker
 COPY package.json package-lock.json* ./
 
-# Sans --ignore-scripts : permet à sharp de télécharger son binaire natif
 RUN npm ci
 
 # ─── Stage 2 : Build ─────────────────────────────────────────────────────────
-FROM node:20-alpine AS builder
+FROM node:20-slim AS builder
 
-RUN apk add --no-cache git git-lfs openssh-client ca-certificates
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    git-lfs \
+    openssh-client \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
 RUN git lfs install --system
 
 WORKDIR /app
 
-# Récupérer node_modules depuis le stage deps
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Build Next.js en mode production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
 RUN npm run build
 
 # ─── Stage 3 : Production ────────────────────────────────────────────────────
-FROM node:20-alpine AS runner
+FROM node:20-slim AS runner
 
 LABEL maintainer="Asset Bridge 3D"
-LABEL description="Interface d'upload 3D sécurisée avec Git LFS"
+LABEL description="Interface d'upload 3D sécurisée avec Blender/Draco et Git LFS"
 
-# Outils runtime : git, git-lfs, openssh (pour le git push au runtime)
-# Les outils de compilation (python3/make/g++) restent dans deps, inutiles ici
-RUN apk add --no-cache \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     git-lfs \
     openssh-client \
     ca-certificates \
-    tini
+    blender \
+    tini \
+    python3 \
+    && rm -rf /var/lib/apt/lists/*
 
-# Initialiser Git LFS au niveau système
 RUN git lfs install --system
+
+# Cloner l'outil de compression Draco via Blender
+RUN git clone https://github.com/La-Fabrik-Durable/cli-draco-compression.git /opt/cli-draco-compression
 
 WORKDIR /app
 
@@ -69,15 +73,6 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
-
-# Créer un utilisateur non-root pour la sécurité
-# Note : on garde root pour les opérations git/SSH en contexte Coolify
-# Si vous souhaitez un user non-root, adaptez les permissions SSH en conséquence
-
-# Copier les packages gltf-transform pour l'API JS in-process
-COPY --from=deps /app/node_modules/@gltf-transform ./node_modules/@gltf-transform
-COPY --from=deps /app/node_modules/draco3dgltf ./node_modules/draco3dgltf
-COPY --from=deps /app/node_modules/meshoptimizer ./node_modules/meshoptimizer
 
 # Copier les artefacts de build
 COPY --from=builder /app/.next/standalone ./
@@ -94,6 +89,6 @@ RUN chmod +x /docker-entrypoint.sh
 
 EXPOSE 3000
 
-# Utiliser tini comme PID 1 pour une gestion correcte des signaux
-ENTRYPOINT ["/sbin/tini", "--", "/docker-entrypoint.sh"]
+# tini sur Debian est dans /usr/bin (Alpine : /sbin/tini)
+ENTRYPOINT ["/usr/bin/tini", "--", "/docker-entrypoint.sh"]
 CMD ["node", "server.js"]

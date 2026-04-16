@@ -105,39 +105,21 @@ async function writeAndCompress(
     }
   }
 
-  // Modèles GLB/GLTF → Draco (API JS in-process, évite SIGILL du subprocess)
+  // Modèles GLB/GLTF → Draco via Blender (headless)
   if (!isTexture && COMPRESSIBLE_MODEL_EXTENSIONS.has(ext)) {
     try {
       mkdirSync(compressedDir, { recursive: true })
       compressedFilename = filename
       const compressedPath = join(compressedDir, compressedFilename)
 
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { NodeIO } = require('@gltf-transform/core') as typeof import('@gltf-transform/core')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { draco } = require('@gltf-transform/functions') as typeof import('@gltf-transform/functions')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const { KHRDracoMeshCompression } = require('@gltf-transform/extensions') as typeof import('@gltf-transform/extensions')
-      // eslint-disable-next-line @typescript-eslint/no-require-imports
-      const draco3d = require('draco3dgltf') as {
-        createEncoderModule: () => Promise<unknown>
-        createDecoderModule: () => Promise<unknown>
-      }
-
-      const io = new NodeIO()
-        .registerExtensions([KHRDracoMeshCompression])
-        .registerDependencies({
-          'draco3d.encoder': await draco3d.createEncoderModule(),
-          'draco3d.decoder': await draco3d.createDecoderModule(),
-        })
-
-      const document = await io.read(savedPath)
-      await document.transform(draco())
-      await io.write(compressedPath, document)
+      execSync(
+        `python3 /opt/cli-draco-compression/blender_draco.py -i "${savedPath}" -o "${compressedPath}" --draco-level 7 --no-resize`,
+        { encoding: 'utf-8', timeout: 120_000 }
+      )
 
       relPaths.push(join(compressedRelDir, compressedFilename))
     } catch (err) {
-      compressionWarning = `Compression Draco échouée : ${err instanceof Error ? err.message : String(err)}`
+      compressionWarning = `Compression Draco (Blender) échouée : ${err instanceof Error ? err.message : String(err)}`
       compressedFilename = null
     }
   }

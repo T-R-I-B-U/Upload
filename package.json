@@ -10,7 +10,6 @@
     "lint": "next lint"
   },
   "dependencies": {
-    "@gltf-transform/cli": "^4.1.0",
     "@google/model-viewer": "^4.2.0",
     "next": "^16.1.7",
     "postprocessing": "^6.39.0",

@@ -92,6 +92,9 @@ COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.gitattributes ./.gitattributes
 
+# sharp est un module natif non bundlé par le standalone Next.js
+COPY --from=deps /app/node_modules/sharp ./node_modules/sharp
+
 # Next.js 16 ajoute "type": "module" dans le package.json standalone,
 # ce qui casse server.js CommonJS. On écrase avec un package.json minimal sans "type".
 RUN printf '{"name":"asset-bridge-3d","version":"0.1.0"}\n' > package.json

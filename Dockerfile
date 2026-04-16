@@ -93,7 +93,9 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/.gitattributes ./.gitattributes
 
 # sharp est un module natif non bundlé par le standalone Next.js
+# @img/sharp-linux-x64 contient le binaire natif de sharp 0.33+
 COPY --from=deps /app/node_modules/sharp ./node_modules/sharp
+COPY --from=deps /app/node_modules/@img ./node_modules/@img
 
 # Next.js 16 ajoute "type": "module" dans le package.json standalone,
 # ce qui casse server.js CommonJS. On écrase avec un package.json minimal sans "type".

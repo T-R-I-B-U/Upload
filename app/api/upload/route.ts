@@ -90,14 +90,18 @@ async function writeAndCompress(
   let compressedFilename: string | null = null
   let compressionWarning: string | undefined
 
-  // Textures PNG/JPG → WebP (import dynamique : sharp ne se charge qu'au runtime)
+  // Textures PNG/JPG → WebP via cwebp (CLI Google, pas de module natif)
   if (isTexture && COMPRESSIBLE_TEXTURE_EXTENSIONS.has(ext)) {
     try {
       mkdirSync(compressedDir, { recursive: true })
       compressedFilename = filename.replace(/\.[^.]+$/, '.webp')
-      const { default: sharp } = await import('sharp')
-      const webpBuffer = await sharp(buffer).webp({ quality: 85 }).toBuffer()
-      writeFileSync(join(compressedDir, compressedFilename), webpBuffer)
+      const compressedPath = join(compressedDir, compressedFilename)
+
+      execSync(
+        `cwebp -q 85 "${savedPath}" -o "${compressedPath}"`,
+        { encoding: 'utf-8', timeout: 30_000 }
+      )
+
       relPaths.push(join(compressedRelDir, compressedFilename))
     } catch (err) {
       compressionWarning = `Compression WebP échouée : ${err instanceof Error ? err.message : err}`

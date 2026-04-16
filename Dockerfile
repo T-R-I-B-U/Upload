@@ -65,6 +65,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 RUN git lfs install --system
 
+# Blender 3.4 (Debian bookworm) utilise des alias NumPy supprimés dans NumPy 1.24+
+# Patch : remplacer np.bool/int/float/complex/object/str par les builtins Python
+RUN sed -i \
+    -e 's/dtype=np\.bool\b/dtype=bool/g' \
+    -e 's/dtype=np\.int\b/dtype=int/g' \
+    -e 's/dtype=np\.float\b/dtype=float/g' \
+    -e 's/dtype=np\.complex\b/dtype=complex/g' \
+    -e 's/dtype=np\.object\b/dtype=object/g' \
+    -e 's/dtype=np\.str\b/dtype=str/g' \
+    /usr/share/blender/scripts/addons/io_scene_gltf2/blender/imp/gltf2_blender_mesh.py
+
 # Cloner l'outil de compression Draco via Blender
 RUN git clone https://github.com/La-Fabrik-Durable/cli-draco-compression.git /opt/cli-draco-compression
 

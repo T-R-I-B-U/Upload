@@ -17,6 +17,7 @@ import {
   commitStagedFiles,
 } from '@/lib/upload'
 import FileRow from '@/components/FileRow'
+import RedeployModal from '@/components/RedeployModal'
 
 // ─────────────────────────────────────────────
 // Composant principal
@@ -28,6 +29,7 @@ export default function UploadZone() {
   const [secretVisible, setSecretVisible] = useState(false)
   const [assetName, setAssetName] = useState('')
   const [globalError, setGlobalError] = useState<string | null>(null)
+  const [showRedeployModal, setShowRedeployModal] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastIdRef = useRef(0)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
@@ -148,6 +150,10 @@ export default function UploadZone() {
             title: `${committedNames.length} fichiers poussés sur Git`,
             detail: withWarning.length > 0 ? `${withWarning.length} compression(s) échouée(s)` : undefined,
           })
+        }
+
+        if (committedNames.length > 0) {
+          setShowRedeployModal(true)
         }
 
         if ((commitResult.failed?.length ?? 0) > 0) {
@@ -408,6 +414,10 @@ export default function UploadZone() {
         )}
       </div>
     </div>
+
+      {showRedeployModal && (
+        <RedeployModal secret={secret} onClose={() => setShowRedeployModal(false)} />
+      )}
     </>
   )
 }

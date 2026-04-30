@@ -30,6 +30,7 @@ export default function UploadZone() {
   const [assetName, setAssetName] = useState('')
   const [globalError, setGlobalError] = useState<string | null>(null)
   const [showRedeployModal, setShowRedeployModal] = useState(false)
+  const [redeployAfterUpload, setRedeployAfterUpload] = useState(false)
   const [toasts, setToasts] = useState<Toast[]>([])
   const toastIdRef = useRef(0)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
@@ -153,6 +154,7 @@ export default function UploadZone() {
         }
 
         if (committedNames.length > 0) {
+          setRedeployAfterUpload(true)
           setShowRedeployModal(true)
         }
 
@@ -412,11 +414,27 @@ export default function UploadZone() {
             {allDone ? 'Tout effacer' : 'Réessayer'}
           </button>
         )}
+
+        {!isUploading && secret.trim() && pendingCount === 0 && (
+          <button
+            onClick={() => { setRedeployAfterUpload(false); setShowRedeployModal(true) }}
+            className="flex-1 bg-surface-muted dark:bg-night-muted
+                       hover:bg-brand-100 dark:hover:bg-night-border
+                       text-gray-600 dark:text-gray-300 font-medium text-sm
+                       py-2.5 px-6 rounded-xl border border-surface-border dark:border-night-border
+                       transition-colors duration-150 flex items-center justify-center gap-2"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+            Redéployer
+          </button>
+        )}
       </div>
     </div>
 
       {showRedeployModal && (
-        <RedeployModal secret={secret} onClose={() => setShowRedeployModal(false)} />
+        <RedeployModal secret={secret} onClose={() => setShowRedeployModal(false)} afterUpload={redeployAfterUpload} />
       )}
     </>
   )

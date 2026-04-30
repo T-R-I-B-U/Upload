@@ -5,9 +5,10 @@ import { useState } from 'react'
 interface RedeployModalProps {
   secret: string
   onClose: () => void
+  afterUpload?: boolean
 }
 
-export default function RedeployModal({ secret, onClose }: RedeployModalProps) {
+export default function RedeployModal({ secret, onClose, afterUpload }: RedeployModalProps) {
   const [status, setStatus] = useState<'idle' | 'loading' | 'success' | 'error'>('idle')
   const [error, setError] = useState<string | null>(null)
 
@@ -53,10 +54,10 @@ export default function RedeployModal({ secret, onClose }: RedeployModalProps) {
                 </svg>
               </div>
               <p className="text-sm font-medium text-gray-700 dark:text-gray-200 text-center">
-                Déploiement lancé sur la-cabane
+                Redémarrage lancé sur la-cabane
               </p>
               <p className="text-xs text-gray-400 dark:text-gray-500 text-center">
-                La branche assets est en cours de build sur Coolify.
+                Le conteneur redémarre sur Coolify.
               </p>
             </div>
             <button
@@ -73,7 +74,10 @@ export default function RedeployModal({ secret, onClose }: RedeployModalProps) {
                 Redéployer la-cabane ?
               </h2>
               <p className="text-sm text-gray-500 dark:text-gray-400">
-                Les assets viennent d&apos;être poussés sur Git. Voulez-vous relancer le déploiement de la branche <span className="font-mono text-brand-500">assets</span> sur Coolify ?
+                {afterUpload
+                  ? <>Les assets viennent d&apos;être poussés sur Git. Voulez-vous relancer le déploiement de la branche <span className="font-mono text-brand-500">assets</span> sur Coolify ?</>
+                  : <>Relancer le déploiement de la branche <span className="font-mono text-brand-500">assets</span> sur Coolify sans uploader de nouveaux fichiers.</>
+                }
               </p>
             </div>
 

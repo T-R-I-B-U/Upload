@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const response = await fetch(
-      `${COOLIFY_API_URL}/api/v1/applications/${COOLIFY_LA_CABANE_APP_UUID}/deploy`,
+      `${COOLIFY_API_URL}/api/v1/applications/${COOLIFY_LA_CABANE_APP_UUID}/restart`,
       {
         method: 'POST',
         headers: {

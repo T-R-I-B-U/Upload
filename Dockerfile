@@ -20,9 +20,11 @@ RUN git lfs install --system
 
 WORKDIR /app
 
-COPY package.json package-lock.json* ./
+RUN npm install -g pnpm
 
-RUN npm ci
+COPY package.json pnpm-lock.yaml ./
+
+RUN pnpm install --frozen-lockfile
 
 # ─── Stage 2 : Build ─────────────────────────────────────────────────────────
 FROM node:20-slim AS builder
@@ -44,7 +46,7 @@ COPY . .
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV NODE_ENV=production
 
-RUN npm run build
+RUN pnpm build
 
 # ─── Stage 3 : Production ────────────────────────────────────────────────────
 FROM node:20-slim AS runner
